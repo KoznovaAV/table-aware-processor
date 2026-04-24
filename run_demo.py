@@ -1,53 +1,48 @@
-#!/usr/bin/env python3
 import os
+import sys
 import json
-import time
-import pandas as pd
 from app.parser import TableParser
 from app.chunker import TableChunker
 from app.profiler import TableProfiler
 
 def run_demo():
-    print("Table-Aware Processing Demo\n")
-    parser = TableParser()
-    chunker = TableChunker(max_rows_per_chunk=200)
-    profiler = TableProfiler()
-
-    examples_dir = "examples"
-    output_dir = "output"
-    os.makedirs(output_dir, exist_ok=True)
-
-    files = [f for f in os.listdir(examples_dir) if f.endswith((".xlsx", ".csv"))]
-    if not files:
-        print("No files in examples/. Place primer_*.xlsx or other tables there.")
+    print("Запуск демо-обработки...")
+    
+    # Проверяем наличие примеров
+    example_file = "examples/primer_1.xlsx"
+    if not os.path.exists(example_file):
+        print(f"Файл {example_file} не найден!")
         return
 
-    for fname in files:
-        fpath = os.path.join(examples_dir, fname)
-        print(f"\n{fname}")
-        start = time.time()
-        try:
-            parsed = parser.parse_file(fpath)
-            chunks = chunker.chunk_file(parsed, fpath)
-            df = pd.read_excel(fpath) if fname.endswith(".xlsx") else pd.read_csv(fpath)
-            prof = profiler.profile(df)
+    # 1. Парсинг
+    parser = TableParser()
+    parsed_data = parser.parse_file(example_file)
+    print(f"Файл прочитан. Листов: {len(parsed_data['sheets_data'])}")
 
-            result = {
-                "metadata": parsed,
-                "chunks": chunks,
-                "profile": prof,
-                "summary": {
-                    "total_chunks": len(chunks),
-                    "file_type": parsed["file_type"]
-                }
-            }
-            out_path = os.path.join(output_dir, f"{os.path.splitext(fname)[0]}_processed.json")
-            with open(out_path, "w", encoding="utf-8") as f:
-                json.dump(result, f, ensure_ascii=False, indent=2)
+    # 2. Чанкинг
+    chunker = TableChunker(max_rows_per_chunk=50, max_cells_per_chunk=1000)
+    chunks = chunker.chunk_file(parsed_data, example_file)
+    print(f"Создано чанков: {len(chunks)}")
 
-            print(f"Saved to {out_path} | Chunks: {len(chunks)} | Time: {time.time() - start:.2f}s")
-        except Exception as e:
-            print(f"Error: {e}")
+    # 3. Профилирование (первый лист)
+    first_sheet_df = list(parsed_data["sheets_data"].values())[0]["df"]
+    profiler = TableProfiler()
+    profile = profiler.profile(first_sheet_df)
+    print(f"Профиль создан. Предупреждений: {len(profile['warnings'])}")
+
+    # 4. Сохранение
+    os.makedirs("output", exist_ok=True)
+    result = {
+        "filename": parsed_data["filename"],
+        "chunks_count": len(chunks),
+        "profile_warnings": profile["warnings"],
+        "sample_chunk": chunks[0] if chunks else None
+    }
+    
+    with open("output/demo_result.json", "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+        
+    print("Результат сохранен в output/demo_result.json")
 
 if __name__ == "__main__":
     run_demo()
