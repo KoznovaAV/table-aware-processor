@@ -27,13 +27,23 @@ async def parse(file: UploadFile = File(...)):
         os.remove(p)
 
 @app.post("/chunk")
-async def chunk(file: UploadFile = File(...), max_rows: int = Query(200, ge=10), max_cells: int = Query(5000, ge=100)):
+async def chunk(
+    file: UploadFile = File(...),
+    max_chunk_bytes: int = Query(10000, ge=500, le=100000),
+    max_cells: int = Query(5000, ge=100)
+):
     p = _tmp(file)
     try:
         parsed = parser.parse_file(p)
-        chunker = TableChunker(max_rows_per_chunk=max_rows, max_cells_per_chunk=max_cells)
+        chunker = TableChunker(max_chunk_bytes=max_chunk_bytes, max_cells_per_chunk=max_cells)
         chunks = chunker.chunk_file(parsed, p)
-        return JSONResponse({"chunks_count": len(chunks), "chunks": chunks})
+        total_bytes = sum(c["chunk_size_bytes"] for c in chunks)
+        return JSONResponse({
+            "chunks_count": len(chunks),
+            "max_chunk_bytes": max_chunk_bytes,
+            "total_bytes": total_bytes,
+            "chunks": chunks
+        })
     finally:
         os.remove(p)
 
@@ -44,28 +54,35 @@ async def profile(file: UploadFile = File(...)):
         if file.filename.endswith(".xlsx"):
             df = pd.read_excel(p)
         else:
-            df = pd.read_csv(p)
+            df = pd.read_csv(p, encoding="utf-8", on_bad_lines="skip")
         return JSONResponse(profiler.profile(df))
     finally:
         os.remove(p)
 
 @app.post("/process-all")
-async def process_all(file: UploadFile = File(...), max_rows: int = Query(200, ge=10), max_cells: int = Query(5000, ge=100)):
+async def process_all(
+    file: UploadFile = File(...),
+    max_chunk_bytes: int = Query(10000, ge=500, le=100000),
+    max_cells: int = Query(5000, ge=100)
+):
     p = _tmp(file)
     try:
         parsed = parser.parse_file(p)
-        chunker = TableChunker(max_rows_per_chunk=max_rows, max_cells_per_chunk=max_cells)
-        ch = chunker.chunk_file(parsed, p)
+        chunker = TableChunker(max_chunk_bytes=max_chunk_bytes, max_cells_per_chunk=max_cells)
+        chunks = chunker.chunk_file(parsed, p)
         if file.filename.endswith(".xlsx"):
             df = pd.read_excel(p)
         else:
-            df = pd.read_csv(p)
+            df = pd.read_csv(p, encoding="utf-8", on_bad_lines="skip")
+        total_bytes = sum(c["chunk_size_bytes"] for c in chunks)
         return JSONResponse({
             "metadata": parsed,
-            "chunks": ch,
+            "chunks": chunks,
             "profile": profiler.profile(df),
             "summary": {
-                "total_chunks": len(ch),
+                "total_chunks": len(chunks),
+                "total_bytes": total_bytes,
+                "max_chunk_bytes": max_chunk_bytes,
                 "file_type": parsed["file_type"]
             }
         })

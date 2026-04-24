@@ -2,23 +2,30 @@ import pandas as pd
 
 class TableChunker:
 
-    def __init__(self, max_rows_per_chunk: int = 200, max_cells_per_chunk: int = 5000):
-        self.max_rows = max_rows_per_chunk
-        self.max_cells = max_cells_per_chunk
+    def __init__(self, max_chunk_bytes: int = 10000, max_cells_per_chunk: int = 5000):
+        self.max_chunk_bytes = max_chunk_bytes
+        self.max_cells_per_chunk = max_cells_per_chunk
 
-    def _convert_to_serializable(self, obj):
-        if isinstance(obj, dict):
-            return {k: self._convert_to_serializable(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [self._convert_to_serializable(item) for item in obj]
-        elif isinstance(obj, pd.Timestamp):
-            return str(obj)
-        elif pd.isna(obj):
-            return None
-        elif isinstance(obj, (int, float, str, bool)) or obj is None:
-            return obj
-        else:
-            return str(obj)
+    def _estimate_row_size(self, row, headers, sheet_name: str) -> int:
+        """Оценивает размер строки в байтах вместе с метаинформацией"""
+        meta = f"Sheet: {sheet_name}\n"
+        for h in headers:
+            meta += f"{h['name']} ({h['type']}): "
+        meta_size = len(meta.encode('utf-8'))
+        
+        row_text = ""
+        for h in headers:
+            val = row.get(h['name'], '')
+            row_text += f"{h['name']}: {val}\n"
+        
+        return meta_size + len(row_text.encode('utf-8'))
+
+    def _estimate_chunk_size(self, chunk_df: pd.DataFrame, sheet_name: str, headers: list) -> int:
+        """Оценивает полный размер чанка в байтах"""
+        total = 0
+        for _, row in chunk_df.iterrows():
+            total += self._estimate_row_size(row.to_dict(), headers, sheet_name)
+        return total
 
     def chunk_file(self, parsed_data: dict, file_path: str) -> list:
         chunks = []
@@ -40,39 +47,63 @@ class TableChunker:
                     if df is not None and not df.empty:
                         break
                 if df is None or df.empty:
-                    raise ValueError("Cannot read CSV file")
+                    raise ValueError(f"Cannot read CSV file: {file_path}")
+            
             chunks.extend(self._make_chunks(df, sheet_name, info, parsed_data["filename"]))
-        return self._convert_to_serializable(chunks)
+        return chunks
 
     def _make_chunks(self, df: pd.DataFrame, sheet: str, info: dict, fname: str) -> list:
         out = []
         headers = info["columns"]
-        total = len(df)
+        total_rows = len(df)
         start = 0
-        while start < total:
-            end = min(start + self.max_rows, total)
-            cells_count = (end - start) * len(df.columns)
-            if cells_count > self.max_cells and len(df.columns) > 0:
-                end = start + max(1, self.max_cells // len(df.columns))
-            piece = df.iloc[start:end]
+        header_rows = info.get("header_rows", 1)
+        
+        while start < total_rows:
+            current_chunk_rows = []
+            current_size = 0
+            end = start
+            
+            while end < total_rows:
+                row = df.iloc[end].to_dict()
+                row_size = self._estimate_row_size(row, headers, sheet)
+                
+                if current_size + row_size > self.max_chunk_bytes and len(current_chunk_rows) > 0:
+                    break
+                
+                if (end - start + 1) * len(df.columns) > self.max_cells_per_chunk:
+                    break
+                
+                current_chunk_rows.append(end)
+                current_size += row_size
+                end += 1
+            
+            if not current_chunk_rows:
+                current_chunk_rows = [start]
+                end = start + 1
+            
+            chunk_df = df.iloc[current_chunk_rows]
+            
             col_letter = self._num2col(len(df.columns))
             out.append({
                 "chunk_id": f"{fname}_{sheet}_{start}_{end}",
+                "chunk_size_bytes": current_size,
                 "source_ref": {
                     "sheet": sheet,
-                    "range": f"A{start + 2}:{col_letter}{end + 1}",
+                    "range": f"A{start + header_rows + 1}:{col_letter}{end + header_rows}",
                     "row_start": start + 1,
                     "row_end": end
                 },
                 "context": {
                     "headers": headers,
                     "sheet_name": sheet,
-                    "header_rows": info.get("header_rows", 1)
+                    "header_rows": header_rows
                 },
-                "data": piece.to_dict("records"),
-                "text_projection": self._build_projection(piece, sheet, headers, start + 1, end)
+                "data": chunk_df.to_dict("records"),
+                "text_projection": self._build_projection(chunk_df, sheet, headers, start + 1, end)
             })
             start = end
+        
         return out
 
     def _build_projection(self, df: pd.DataFrame, sheet: str, headers: list, r_start: int, r_end: int) -> str:

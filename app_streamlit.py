@@ -11,7 +11,7 @@ st.set_page_config(page_title="Table-Aware Processor", layout="wide")
 st.title("Table-Aware Processing")
 st.markdown("Загрузите XLSX или CSV файл для анализа")
 
-max_rows = st.sidebar.slider("Строк в чанке", 50, 500, 200)
+max_chunk_bytes = st.sidebar.slider("Максимальный размер чанка (байт)", 1000, 50000, 10000, step=1000)
 max_cells = st.sidebar.slider("Ячеек в чанке", 1000, 10000, 5000)
 include_profile = st.sidebar.checkbox("Профилирование", value=True)
 
@@ -45,7 +45,7 @@ if uploaded_file:
                 st.write("Пример данных:")
                 st.json(sheet_data["sample_data"])
         
-        chunker = TableChunker(max_rows_per_chunk=max_rows, max_cells_per_chunk=max_cells)
+        chunker = TableChunker(max_chunk_bytes=max_chunk_bytes, max_cells_per_chunk=max_cells)
         chunks = chunker.chunk_file(parsed, tmp_path)
         
         st.subheader(f"Чанки (всего: {len(chunks)})")

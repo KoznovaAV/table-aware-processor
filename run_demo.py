@@ -10,7 +10,7 @@ from app.profiler import TableProfiler
 def run_demo():
     print("Table-Aware Processing Demo\n")
     parser = TableParser()
-    chunker = TableChunker(max_rows_per_chunk=200)
+    chunker = TableChunker(max_chunk_bytes=10000)
     profiler = TableProfiler()
 
     examples_dir = "examples"
@@ -19,7 +19,7 @@ def run_demo():
 
     files = [f for f in os.listdir(examples_dir) if f.endswith((".xlsx", ".csv"))]
     if not files:
-        print("No files in examples/. Place primer_*.xlsx or other tables there.")
+        print("No files in examples/")
         return
 
     for fname in files:
@@ -29,8 +29,14 @@ def run_demo():
         try:
             parsed = parser.parse_file(fpath)
             chunks = chunker.chunk_file(parsed, fpath)
-            df = pd.read_excel(fpath) if fname.endswith(".xlsx") else pd.read_csv(fpath)
+
+            if fname.endswith(".xlsx"):
+                df = pd.read_excel(fpath)
+            else:
+                df = pd.read_csv(fpath, encoding="utf-8", on_bad_lines="skip")
+
             prof = profiler.profile(df)
+            total_bytes = sum(c["chunk_size_bytes"] for c in chunks)
 
             result = {
                 "metadata": parsed,
@@ -38,6 +44,7 @@ def run_demo():
                 "profile": prof,
                 "summary": {
                     "total_chunks": len(chunks),
+                    "total_bytes": total_bytes,
                     "file_type": parsed["file_type"]
                 }
             }
@@ -45,7 +52,7 @@ def run_demo():
             with open(out_path, "w", encoding="utf-8") as f:
                 json.dump(result, f, ensure_ascii=False, indent=2)
 
-            print(f"Saved to {out_path} | Chunks: {len(chunks)} | Time: {time.time() - start:.2f}s")
+            print(f"Saved to {out_path} | Chunks: {len(chunks)} | Total bytes: {total_bytes} | Time: {time.time() - start:.2f}s")
         except Exception as e:
             print(f"Error: {e}")
 
