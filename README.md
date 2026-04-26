@@ -73,7 +73,7 @@ file: Файл .xlsx или .csv (multipart/form-data).
 max_rows (int): Максимальное количество строк в чанке (по умолчанию 200).
 max_cells (int): Максимальное количество ячеек в чанке (по умолчанию 5000).
 ```
-### Пример запроса (curl):
+Пример запроса (curl):
 ```bash
 curl -X POST "http://localhost:8000/process?max_rows=200&max_cells=5000" \
   -F "file=@primer_1.xlsx"
