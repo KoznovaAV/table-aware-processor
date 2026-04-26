@@ -1,6 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Query
 from fastapi.responses import JSONResponse
-import json
 import tempfile
 import os
 
@@ -38,7 +37,6 @@ async def process(
             "chunks": chunks[:30] 
         }
 
-        # Удаляем DF из metadata перед сериализацией, иначе упадет ошибка
         for sheet in result["metadata"]["sheets"].values():
             sheet.pop("df", None)
 

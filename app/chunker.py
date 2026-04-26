@@ -7,15 +7,11 @@ class TableChunker:
         self.max_cells = max_cells_per_chunk
 
     def chunk_file(self, parsed_data: dict, file_path: str) -> list:
-        """
-        Использует DataFrame из parsed_data, а не читает файл заново.
-        file_path используется только для имени файла в ID.
-        """
+
         chunks = []
         filename = parsed_data.get("filename", "unknown")
         
         for sheet_name, info in parsed_data["sheets"].items():
-            # Берем готовый очищенный DataFrame из парсера
             df = info.get("df")
             
             if df is None or df.empty:
@@ -37,7 +33,6 @@ class TableChunker:
         if total == 0:
             return out
 
-        # Оптимизация: преобразуем весь DF в списки словарей один раз
         df_clean = df.replace([np.nan, np.inf, -np.inf], "")
         records = df_clean.to_dict("records")
 
@@ -51,13 +46,11 @@ class TableChunker:
 
             while end < total:
                 row = records[end]
-                # Оценка размера строки в байтах
                 row_content = ",".join(f"{h['name']}:{str(row.get(h['name'], ''))}" for h in headers)
                 meta_content = f"Sheet:{sheet}," + ",".join(h["name"] for h in headers)
                 
                 row_bytes = len((meta_content + row_content).encode("utf-8"))
 
-                # Проверка лимитов
                 if current_bytes + row_bytes > self.max_bytes and end > start:
                     break
                 if (end - start + 1) * len(df.columns) > self.max_cells:
@@ -68,7 +61,6 @@ class TableChunker:
                 end += 1
 
             if end == start:
-                # Если даже одна строка не влезает, берем её принудительно
                 end = start + 1
                 chunk_data = [records[start]]
                 current_bytes = len((f"Sheet:{sheet}," + ",".join(h["name"] for h in headers) + 

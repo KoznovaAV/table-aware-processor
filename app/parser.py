@@ -49,37 +49,29 @@ class TableParser:
         if df.empty:
             return df
 
-        # Удаляем полностью пустые строки и колонки
         df = df.dropna(how="all").dropna(axis=1, how="all")
 
-        # Поиск заголовка (первая строка с достаточным заполнением)
         header_idx = 0
         for i in range(min(15, len(df))):
             if df.iloc[i].notna().sum() / len(df.columns) > 0.25:
                 header_idx = i
                 break
 
-        # Формируем тело таблицы
         body = df.iloc[header_idx + 1 :].reset_index(drop=True)
         body.columns = df.iloc[header_idx]
 
-        # Очистка имен колонок
         body.columns = [
             f"Col_{i}" if str(c).strip().startswith("Unnamed") or pd.isna(c) or str(c).strip() == ""
             else str(c).strip()
             for i, c in enumerate(body.columns)
         ]
-        
-        # Удаляем колонки, которые стали полностью пустыми после переименования/очистки
+
         body = body.dropna(axis=1, how="all")
 
-        # Заполняем пропуски (важно для merged cells) и заменяем inf/nan
         body = body.ffill().replace([np.nan, np.inf, -np.inf, None], "")
 
-        # Удаляем строки, где все значения пустые строки
         body = body[body.astype(str).apply(lambda x: x.str.strip()).any(axis=1)]
-        
-        # Сброс индекса для корректной нумерации строк в чанкерах
+
         body = body.reset_index(drop=True)
 
         return body
@@ -111,8 +103,7 @@ class TableParser:
                 ]
 
                 r, c = df_clean.shape
-                
-                # ВАЖНО: Сохраняем очищенный DataFrame в результат!
+
                 result["sheets"][name] = {
                     "sheet_name": name,
                     "columns": cols_meta,
@@ -126,7 +117,7 @@ class TableParser:
                         "row_end": r,
                     },
                     "sample_data": df_clean.head(5).to_dict("records"),
-                    "df": df_clean # <--- ПЕРЕДАЕМ ДАННЫЕ
+                    "df": df_clean 
                 }
         finally:
             wb.close()
@@ -174,7 +165,7 @@ class TableParser:
                         "row_end": r,
                     },
                     "sample_data": df_clean.head(5).to_dict("records"),
-                    "df": df_clean # <--- ПЕРЕДАЕМ ДАННЫЕ
+                    "df": df_clean 
                 }
             },
             "total_sheets": 1,

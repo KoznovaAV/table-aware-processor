@@ -61,7 +61,6 @@ if uploaded_file:
                 st.json(chunk["data"][:3])
                 st.text_area("📝 Текстовая проекция (для LLM/RAG)", chunk["text_projection"], height=150)
 
-        # ВАЖНО: Удаляем DF из метаданных перед сохранением в JSON
         for sheet in parsed["sheets"].values():
             sheet.pop("df", None)
 
