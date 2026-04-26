@@ -2,6 +2,10 @@ from fastapi import FastAPI, UploadFile, File, Query
 from fastapi.responses import JSONResponse
 import tempfile
 import os
+import uvicorn
+
+from parser import TableParser
+from chunker import TableChunker
 
 app = FastAPI(title="Table-Aware API")
 
@@ -18,9 +22,6 @@ async def process(
         tmp_path = tmp.name
 
     try:
-        from app.parser import TableParser
-        from app.chunker import TableChunker
-
         parser = TableParser()
         meta = parser.parse_file(tmp_path)
 
@@ -62,3 +63,13 @@ async def root():
         },
         "docs": "http://localhost:8000/docs"
     }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app", 
+        host="127.0.0.1",
+        port=8000, 
+        reload=True
+    )
