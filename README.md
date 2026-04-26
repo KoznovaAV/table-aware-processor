@@ -41,6 +41,11 @@ pip install -r requirements.txt
 ```
 #### ▶️ Запуск API сервера
 
+Прямой запуск Python-модуля:
+```bash
+python app/main.py
+```
+Или через uvicorn:
 ```bash
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
