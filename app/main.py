@@ -1,90 +1,64 @@
 from fastapi import FastAPI, UploadFile, File, Query
 from fastapi.responses import JSONResponse
-from app.parser import TableParser
-from app.chunker import TableChunker
-from app.profiler import TableProfiler
+import json
 import tempfile
 import os
-import pandas as pd
 
-app = FastAPI(title="Table-Aware API", version="1.0")
-parser = TableParser()
-profiler = TableProfiler()
+app = FastAPI(title="Table-Aware API")
 
-def _tmp(file: UploadFile) -> str:
-    ext = os.path.splitext(file.filename)[1]
-    t = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
-    t.write(file.file.read())
-    t.close()
-    return t.name
 
-@app.post("/parse")
-async def parse(file: UploadFile = File(...)):
-    p = _tmp(file)
-    try:
-        return JSONResponse(parser.parse_file(p))
-    finally:
-        os.remove(p)
-
-@app.post("/chunk")
-async def chunk(
+@app.post("/process")
+async def process(
     file: UploadFile = File(...),
-    max_chunk_bytes: int = Query(10000, ge=500, le=100000),
-    max_cells: int = Query(5000, ge=100)
+    max_rows: int = Query(200),
+    max_cells: int = Query(5000)
 ):
-    p = _tmp(file)
+
+    suffix = os.path.splitext(file.filename)[1] if file.filename else ".tmp"
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(await file.read())
+        tmp_path = tmp.name
+
     try:
-        parsed = parser.parse_file(p)
-        chunker = TableChunker(max_chunk_bytes=max_chunk_bytes, max_cells_per_chunk=max_cells)
-        chunks = chunker.chunk_file(parsed, p)
-        total_bytes = sum(c["chunk_size_bytes"] for c in chunks)
-        return JSONResponse({
+        from app.parser import TableParser
+        from app.chunker import TableChunker
+
+        parser = TableParser()
+        meta = parser.parse_file(tmp_path)
+
+        chunker = TableChunker(
+            max_chunk_bytes=max_rows * 100,
+            max_cells_per_chunk=max_cells
+        )
+        chunks = chunker.chunk_file(meta, tmp_path)
+
+        result = {
+            "filename": file.filename,
+            "metadata": meta,
             "chunks_count": len(chunks),
-            "max_chunk_bytes": max_chunk_bytes,
-            "total_bytes": total_bytes,
-            "chunks": chunks
-        })
-    finally:
-        os.remove(p)
+            "chunks": chunks[:30] 
+        }
 
-@app.post("/profile")
-async def profile(file: UploadFile = File(...)):
-    p = _tmp(file)
-    try:
-        if file.filename.endswith(".xlsx"):
-            df = pd.read_excel(p)
-        else:
-            df = pd.read_csv(p, encoding="utf-8", on_bad_lines="skip")
-        return JSONResponse(profiler.profile(df))
-    finally:
-        os.remove(p)
+        json_str = json.dumps(result, default=str, ensure_ascii=False)
 
-@app.post("/process-all")
-async def process_all(
-    file: UploadFile = File(...),
-    max_chunk_bytes: int = Query(10000, ge=500, le=100000),
-    max_cells: int = Query(5000, ge=100)
-):
-    p = _tmp(file)
-    try:
-        parsed = parser.parse_file(p)
-        chunker = TableChunker(max_chunk_bytes=max_chunk_bytes, max_cells_per_chunk=max_cells)
-        chunks = chunker.chunk_file(parsed, p)
-        if file.filename.endswith(".xlsx"):
-            df = pd.read_excel(p)
-        else:
-            df = pd.read_csv(p, encoding="utf-8", on_bad_lines="skip")
-        total_bytes = sum(c["chunk_size_bytes"] for c in chunks)
-        return JSONResponse({
-            "metadata": parsed,
-            "chunks": chunks,
-            "profile": profiler.profile(df),
-            "summary": {
-                "total_chunks": len(chunks),
-                "total_bytes": total_bytes,
-                "max_chunk_bytes": max_chunk_bytes,
-                "file_type": parsed["file_type"]
-            }
-        })
+        return JSONResponse(content=json.loads(json_str))
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"error": str(e), "message": "Processing failed"}
+        )
     finally:
-        os.remove(p)
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+
+
+@app.get("/")
+async def root():
+    return {
+        "service": "Table-Aware API",
+        "endpoints": {
+            "POST /process": "Upload file -> get metadata + chunks"
+        },
+        "docs": "http://localhost:8000/docs"
+    }

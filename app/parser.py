@@ -1,17 +1,15 @@
+import pandas as pd
+import numpy as np
 import os
 import warnings
 
-import numpy as np
-import pandas as pd
-
-warnings.simplefilter(action="ignore", category=FutureWarning)
-warnings.simplefilter(action="ignore", category=UserWarning)
+warnings.filterwarnings("ignore")
 
 
 class TableParser:
+
     def parse_file(self, file_path: str) -> dict:
-        _, ext = os.path.splitext(file_path)
-        ext = ext.lower()
+        ext = os.path.splitext(file_path)[1].lower()
         if ext == ".xlsx":
             return self._parse_excel(file_path)
         elif ext == ".csv":
@@ -22,8 +20,7 @@ class TableParser:
         s = series.dropna()
         if s.empty:
             return "empty"
-
-        sample = s.head(500)
+        sample = s.head(200)
         n = len(sample)
         if n == 0:
             return "empty"
@@ -56,39 +53,25 @@ class TableParser:
         df = df.dropna(how="all").dropna(axis=1, how="all")
 
         header_idx = 0
-        max_density = 0
+        for i in range(min(15, len(df))):
+            if df.iloc[i].notna().sum() / len(df.columns) > 0.25:
+                header_idx = i
+                break
 
-        for i in range(min(20, len(df))):
-            row = df.iloc[i]
-            density = row.notna().sum() / len(df.columns)
-            if density > max_density and density > 0.25:
-                row_str = " ".join(str(v) for v in row if pd.notna(v))
-                if len(row_str) > 5:
-                    max_density = density
-                    header_idx = i
-
-        new_header = df.iloc[header_idx]
         body = df.iloc[header_idx + 1 :].reset_index(drop=True)
-        body.columns = new_header
+        body.columns = df.iloc[header_idx]
 
         body.columns = [
-            f"Col_{i}"
-            if str(c).strip().startswith("Unnamed")
-            or pd.isna(c)
-            or str(c).strip() == ""
+            f"Col_{i}" if str(c).strip().startswith("Unnamed") or pd.isna(c) or str(c).strip() == ""
             else str(c).strip()
             for i, c in enumerate(body.columns)
         ]
 
         body = body.dropna(axis=1, how="all")
 
-        body = body.ffill()
+        body = body.ffill().replace([np.nan, np.inf, -np.inf, None], "", regex=True)
 
-        body = body.replace([np.nan, np.inf, -np.inf, None], "", regex=True)
-
-        body = body[body.astype(str).apply(lambda x: x.str.strip()).any(axis=1)]
-
-        return body
+        return body[body.astype(str).apply(lambda x: x.str.strip()).any(axis=1)]
 
     def _parse_excel(self, path: str) -> dict:
         import openpyxl

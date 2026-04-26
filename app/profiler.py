@@ -1,5 +1,6 @@
 import pandas as pd
 
+
 class TableProfiler:
 
     def profile(self, df: pd.DataFrame) -> dict:
@@ -9,6 +10,7 @@ class TableProfiler:
             "columns": {},
             "warnings": []
         }
+
         for c in df.columns:
             s = df[c]
             null_pct = round(s.isna().mean() * 100, 2)
@@ -17,6 +19,7 @@ class TableProfiler:
                 "unique_count": int(s.nunique()),
                 "dtype": str(s.dtype)
             }
+
             if pd.api.types.is_numeric_dtype(s):
                 ns = s.dropna()
                 if len(ns) > 0:
@@ -30,17 +33,10 @@ class TableProfiler:
                 col_p["top_values"] = [
                     {"value": str(k), "count": int(v)} for k, v in top.items()
                 ]
+
             prof["columns"][str(c)] = col_p
 
-        high_nulls = any(v["null_percentage"] > 90 for v in prof["columns"].values())
-        if high_nulls:
+        if any(v["null_percentage"] > 90 for v in prof["columns"].values()):
             prof["warnings"].append("High null percentage (>90%) in some columns")
-
-        high_cardinality = any(
-            v.get("dtype") == "object" and v.get("unique_count", 0) > 100
-            for v in prof["columns"].values()
-        )
-        if high_cardinality:
-            prof["warnings"].append("String columns with high cardinality (>100 unique)")
 
         return prof
