@@ -6,32 +6,28 @@ class TableChunker:
         self.max_bytes = max_chunk_bytes
         self.max_cells = max_cells_per_chunk
 
-    def chunk_file(self, parsed_data: dict, file_path: str) -> list:  # <-- ИСПРАВЛЕНО: было "parsed_ dict"
+    def chunk_file(self, parsed_data: dict, file_path: str) -> list:
+        """
+        Использует DataFrame из parsed_data, а не читает файл заново.
+        file_path используется только для имени файла в ID.
+        """
         chunks = []
+        filename = parsed_data.get("filename", "unknown")
+        
         for sheet_name, info in parsed_data["sheets"].items():
-            try:
-                if parsed_data["file_type"] == "xlsx":
-                    df = pd.read_excel(file_path, sheet_name=sheet_name)
-                else:
-                    df = self._read_csv(file_path)
+            # Берем готовый очищенный DataFrame из парсера
+            df = info.get("df")
+            
+            if df is None or df.empty:
+                continue
 
-                df = df.replace([np.nan, np.inf, -np.inf], "")
-                chunks.extend(self._make_chunks(df, sheet_name, info, parsed_data["filename"]))
+            try:
+                chunks.extend(self._make_chunks(df, sheet_name, info, filename))
             except Exception as e:
                 print(f"Error processing sheet {sheet_name}: {e}")
                 continue
+        
         return chunks
-
-    def _read_csv(self, path: str) -> pd.DataFrame:
-        for enc in ["utf-8", "windows-1251", "cp1252"]:
-            for sep in [",", ";", "\t"]:
-                try:
-                    df = pd.read_csv(path, encoding=enc, sep=sep, on_bad_lines="skip")
-                    if not df.empty:
-                        return df
-                except Exception:
-                    continue
-        raise ValueError(f"Cannot read CSV: {path}")
 
     def _make_chunks(self, df: pd.DataFrame, sheet: str, info: dict, fname: str) -> list:
         out = []
@@ -41,20 +37,9 @@ class TableChunker:
         if total == 0:
             return out
 
-        records = []
-        for _, row in df.iterrows():
-            row_dict = {}
-            for col in df.columns:
-                val = row[col]
-                if pd.isna(val):
-                    row_dict[col] = ""
-                elif isinstance(val, (np.integer, np.int64, np.int32)):
-                    row_dict[col] = int(val)
-                elif isinstance(val, (np.floating, np.float64, np.float32)):
-                    row_dict[col] = float(val) if not np.isinf(val) else ""
-                else:
-                    row_dict[col] = str(val)
-            records.append(row_dict)
+        # Оптимизация: преобразуем весь DF в списки словарей один раз
+        df_clean = df.replace([np.nan, np.inf, -np.inf], "")
+        records = df_clean.to_dict("records")
 
         start = 0
         header_rows = info.get("header_rows", 1)
@@ -66,9 +51,13 @@ class TableChunker:
 
             while end < total:
                 row = records[end]
-                row_str = ",".join(f"{h['name']}:{str(row.get(h['name'], ''))}" for h in headers)
-                row_bytes = len((f"Sheet:{sheet}," + ",".join(h["name"] for h in headers) + row_str).encode("utf-8"))
+                # Оценка размера строки в байтах
+                row_content = ",".join(f"{h['name']}:{str(row.get(h['name'], ''))}" for h in headers)
+                meta_content = f"Sheet:{sheet}," + ",".join(h["name"] for h in headers)
+                
+                row_bytes = len((meta_content + row_content).encode("utf-8"))
 
+                # Проверка лимитов
                 if current_bytes + row_bytes > self.max_bytes and end > start:
                     break
                 if (end - start + 1) * len(df.columns) > self.max_cells:
@@ -79,21 +68,26 @@ class TableChunker:
                 end += 1
 
             if end == start:
+                # Если даже одна строка не влезает, берем её принудительно
                 end = start + 1
                 chunk_data = [records[start]]
+                current_bytes = len((f"Sheet:{sheet}," + ",".join(h["name"] for h in headers) + 
+                                     ",".join(f"{h['name']}:{str(chunk_data[0].get(h['name'], ''))}" for h in headers)).encode("utf-8"))
 
             if chunk_data:
-                chunk_df = pd.DataFrame(chunk_data)
                 col_letter = self._num2col(len(df.columns))
+                
+                abs_row_start = start + 1 
+                abs_row_end = end
 
                 out.append({
                     "chunk_id": f"{fname}_{sheet}_{start}_{end}",
                     "chunk_size_bytes": current_bytes,
                     "source_ref": {
                         "sheet": sheet,
-                        "range": f"A{start + header_rows + 1}:{col_letter}{end + header_rows}",
-                        "row_start": start + 1,
-                        "row_end": end
+                        "range": f"A{abs_row_start}:{col_letter}{abs_row_end}",
+                        "row_start": abs_row_start,
+                        "row_end": abs_row_end
                     },
                     "context": {
                         "headers": [h["name"] for h in headers],
@@ -101,7 +95,7 @@ class TableChunker:
                         "header_rows": header_rows
                     },
                     "data": chunk_data,
-                    "text_projection": self._build_projection(chunk_df, sheet, headers, start + 1, end)
+                    "text_projection": self._build_projection(pd.DataFrame(chunk_data), sheet, headers, abs_row_start, abs_row_end)
                 })
             start = end
 

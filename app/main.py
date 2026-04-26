@@ -10,10 +10,9 @@ app = FastAPI(title="Table-Aware API")
 @app.post("/process")
 async def process(
     file: UploadFile = File(...),
-    max_rows: int = Query(200),
-    max_cells: int = Query(5000)
+    max_bytes: int = Query(50000, description="Max chunk size in bytes"),
+    max_cells: int = Query(5000, description="Max cells per chunk")
 ):
-
     suffix = os.path.splitext(file.filename)[1] if file.filename else ".tmp"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(await file.read())
@@ -27,26 +26,29 @@ async def process(
         meta = parser.parse_file(tmp_path)
 
         chunker = TableChunker(
-            max_chunk_bytes=max_rows * 100,
+            max_chunk_bytes=max_bytes,
             max_cells_per_chunk=max_cells
         )
         chunks = chunker.chunk_file(meta, tmp_path)
 
         result = {
             "filename": file.filename,
-            "metadata": meta,
+            "metadata": meta, 
             "chunks_count": len(chunks),
             "chunks": chunks[:30] 
         }
 
-        json_str = json.dumps(result, default=str, ensure_ascii=False)
+        # Удаляем DF из metadata перед сериализацией, иначе упадет ошибка
+        for sheet in result["metadata"]["sheets"].values():
+            sheet.pop("df", None)
 
-        return JSONResponse(content=json.loads(json_str))
+        return JSONResponse(content=result)
 
     except Exception as e:
+        import traceback
         return JSONResponse(
             status_code=500,
-            content={"error": str(e), "message": "Processing failed"}
+            content={"error": str(e), "traceback": traceback.format_exc()}
         )
     finally:
         if os.path.exists(tmp_path):
