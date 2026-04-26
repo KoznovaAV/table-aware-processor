@@ -69,13 +69,13 @@ docker run -p 8501:8501 table-processor streamlit run app_streamlit.py --server.
 ### Основной эндпоинт для обработки файлов: POST /process
 Параметры:
 ```bash
-file: Файл .xlsx или .csv (multipart/form-data).
-max_rows (int): Максимальное количество строк в чанке (по умолчанию 200).
-max_cells (int): Максимальное количество ячеек в чанке (по умолчанию 5000).
+`file` — файл `.xlsx` или `.csv` (multipart/form-data)
+`max_bytes` — максимальный размер чанка в байтах (по умолчанию `50000`)
+`max_cells` — максимальное количество ячеек в чанке (по умолчанию `5000`)
 ```
 Пример запроса (curl):
 ```bash
-curl -X POST "http://localhost:8000/process?max_rows=200&max_cells=5000" \
+curl -X POST "http://localhost:8000/process?max_bytes=50000&max_cells=5000" \
   -F "file=@primer_1.xlsx"
 ```
 Ответ: JSON объект, содержащий метаданные файла и массив чанков с текстовыми проекциями.
