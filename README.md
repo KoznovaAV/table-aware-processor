@@ -65,7 +65,7 @@ API доступно по адресу: http://localhost:8000/docs
 docker run -p 8501:8501 table-processor streamlit run app_streamlit.py --server.port=8501 --server.address=0.0.0.0
 ```
 Интерфейс доступен по адресу: http://localhost:8501
-## 📡 3. Использование API
+## 📡 Использование API
 ### Основной эндпоинт для обработки файлов: POST /process
 Параметры:
 ```bash
